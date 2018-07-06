@@ -1,0 +1,84 @@
+#!/adf/sefas/python/py2.6/bin/python
+import os, time, shutil, sys, subprocess
+import uuid, zipfile, re
+import string
+
+path_to_watch = "/home/adf/fff/"
+destination="/home/adf/work/"
+
+def create_work_folder(path):
+  try:
+    os.makedirs(path)
+  except OSError as exception:
+    if exception.errno != errno.EEXIST:
+      raise
+
+def start_sefas(appraisal_or_legacy, workfolder, filename):
+  print "Starting pdf/vpf creation process"
+  if appraisal_or_legacy == '0':
+     print "-------  RUNNING  APPRAISAL -------"
+     print " Unzipping file "
+     fh = open(workfolder + "/" + filename, 'rb')
+     z = zipfile.ZipFile(fh)
+     for name in z.namelist():
+       outpath = workfolder
+       z.extract(name, outpath)
+     fh.close()
+     XML_Filename= filename.rsplit( ".", 1 )[ 0 ]  + ".xml"
+     print "Getting Document_Code from " + XML_Filename
+     f = open(workfolder + "/" + XML_Filename, 'r')
+     text = f.read()
+     f.close()
+     tuples = re.findall(r'<(.*)>(.*)</(.*)>', text)
+     DocumentCode = "Not found"
+     pdf_appraisal_path = "/opt/CFPB/InboundFlattenPdfs/" + filename.rsplit( ".", 1 )[ 0 ]
+     for n in tuples:
+       if "Document_Code" in n:
+         DocumentCode=n[1]
+         print DocumentCode
+     print "Going to run /opt/sefas/bin/compose_ULS06.py -d " + workfolder + " -a 1 -da " + pdf_appraisal_path + " -t " + DocumentCode + " -i " + XML_Filename
+     
+  else:
+     print "-------  RUNNING  LEGACY -------"
+  try:
+    child_pid = os.fork()
+    if child_pid == 0:
+      # child process
+      print "Going to run /opt/sefas/bin/compose_ULS06.py -d " + workfolder + " -a 0 " + "-t $Template -i " + filename
+      os.system('ping -c 20 localhost')
+      sys.exit(0)
+  except OSError, e:
+    print >> sys.stderr, "fork failed: %d (%s)" % (e.errno, e.strerror)
+    sys.exit(1)
+
+def process_appraisal(uuid_folder_name, filename):
+  newUUIDfolder=str(uuid.uuid4())
+  create_work_folder(destination + newUUIDfolder)
+  shutil.move(path_to_watch + filethere[0], destination + newUUIDfolder)
+  print "Moved " + path_to_watch + filethere[0] + " to " + destination + newUUIDfolder
+  start_sefas("0", destination + newUUIDfolder, filethere[0])
+
+def process_normal(uuid_folder_name, filename):
+  newUUIDfolder=str(uuid.uuid4())
+  create_work_folder(destination + newUUIDfolder)
+  shutil.move(path_to_watch + filethere[0], destination + newUUIDfolder)
+  print "Moved " + path_to_watch + filethere[0] + " to " + destination + newUUIDfolder
+  start_sefas("1", destination + newUUIDfolder, filethere[0])
+
+if __name__ == "__main__":
+  while 1:
+    time.sleep (5)
+    files_read = dict ([(f, None) for f in os.listdir (path_to_watch)])
+    filethere = [f for f in files_read]
+    if filethere: 
+      if str(filethere[0].lower()).endswith('.zip'):
+        process_appraisal(str(uuid.uuid4()),filethere) 
+      elif str(filethere[0].lower()).endswith('.xml'):
+        process_normal(str(uuid.uuid4()),filethere)
+      else:
+        print str(filethere)
+        print "I dont recognize this as a valid file"
+        print "Moving file to: " + destination + "badfiles/"
+        shutil.move(path_to_watch + filethere[0], destination + "badfiles/" )
+    else:
+      print "no files"
